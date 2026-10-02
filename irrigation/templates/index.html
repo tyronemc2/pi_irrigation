@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Greenhouse</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#17302A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Greenhouse">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/static/icons/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>Greenhouse</h1>
+    <p class="where">{{ site }}</p>
+  </div>
+  <p id="link" class="link" role="status"><span class="dot"></span><span id="link-text">Connecting</span></p>
+</header>
+
+<main>
+  <section class="tank" aria-labelledby="tank-h">
+    <svg class="tank-art" viewBox="0 0 150 190" aria-hidden="true">
+      <defs><clipPath id="tank-clip"><rect x="20" y="14" width="80" height="166" rx="10"/></clipPath></defs>
+      <rect x="20" y="14" width="80" height="166" rx="10" class="tank-body"/>
+      <g clip-path="url(#tank-clip)"><rect id="water" x="20" y="180" width="80" height="0" class="tank-water"/></g>
+      <rect x="20" y="14" width="80" height="166" rx="10" class="tank-wall"/>
+      <line x1="100" x2="112" y1="39" y2="39" class="float-tick"/>
+      <text x="115" y="43" class="float-label">High</text>
+      <line x1="100" x2="112" y1="114" y2="114" class="float-tick"/>
+      <text x="115" y="118" class="float-label">Low</text>
+      <circle id="float-high" cx="94" cy="39" r="5" class="float"/>
+      <circle id="float-low" cx="94" cy="114" r="5" class="float"/>
+    </svg>
+    <div class="tank-text">
+      <h2 id="tank-h">250 L tank</h2>
+      <p id="tank-state" class="tank-state">–</p>
+      <dl class="facts">
+        <div><dt>Refill</dt><dd id="refill">–</dd></div>
+        <div><dt>Pump</dt><dd id="pump">–</dd></div>
+        <div><dt>Water</dt><dd id="temp">–</dd></div>
+      </dl>
+      <button id="refill-reset" class="btn small warn" hidden>Clear refill fault</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="zones-h">
+    <h2 id="zones-h" class="section-h">Watering</h2>
+    <div id="zones" class="zones"></div>
+  </section>
+
+  <section aria-labelledby="sched-h">
+    <div class="section-row">
+      <h2 id="sched-h" class="section-h">Schedules</h2>
+      <button id="add-schedule" class="btn small">Add schedule</button>
+    </div>
+    <p id="paused" class="paused" hidden></p>
+    <ul id="schedules" class="list"></ul>
+    <div class="pause-row">
+      <span>Pause schedules for</span>
+      <button class="btn small ghost" data-pause="1">1 day</button>
+      <button class="btn small ghost" data-pause="3">3 days</button>
+      <button class="btn small ghost" data-pause="7">7 days</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="hist-h">
+    <h2 id="hist-h" class="section-h">Activity</h2>
+    <ul id="history" class="list history"></ul>
+  </section>
+
+  <section aria-labelledby="sys-h" class="system">
+    <h2 id="sys-h" class="section-h">System</h2>
+    <dl class="facts" id="system"></dl>
+    <div class="sys-actions">
+      <button id="notify-test" class="btn small ghost">Send test notification</button>
+      <button id="install" class="btn small ghost" hidden>Install app</button>
+    </div>
+    <p id="ios-hint" class="hint" hidden>To install: tap the Share button in Safari, then <b>Add to Home Screen</b>.</p>
+  </section>
+</main>
+
+<div id="runbar" class="runbar" hidden>
+  <p id="run-text"></p>
+  <button id="stop" class="btn stop">Stop all water</button>
+</div>
+
+<div id="toast" class="toast" role="alert" hidden></div>
+
+<dialog id="sched-dialog">
+  <form id="sched-form" method="dialog">
+    <h2 id="sched-title">Add schedule</h2>
+    <label>Zone <select name="zone_id" id="f-zone"></select></label>
+    <fieldset class="kind">
+      <legend>Repeat</legend>
+      <label><input type="radio" name="kind" value="daily" checked> Once a day</label>
+      <label><input type="radio" name="kind" value="cycle"> Cycle through the day</label>
+    </fieldset>
+    <fieldset class="days">
+      <legend>Days</legend>
+      <div id="f-days"></div>
+    </fieldset>
+    <div class="grid2">
+      <label><span id="start-label">Start at</span> <input type="time" name="start" required value="06:30"></label>
+      <label class="cycle-only">Until <input type="time" name="end" value="18:00"></label>
+      <label class="cycle-only">Every (minutes) <input type="number" name="every_minutes" min="5" value="60" inputmode="numeric"></label>
+      <label>Run for (minutes) <input type="number" name="minutes" min="1" step="0.5" value="10" inputmode="decimal" required></label>
+    </div>
+    <label class="check"><input type="checkbox" name="enabled" checked> Active</label>
+    <p id="form-error" class="form-error" role="alert"></p>
+    <div class="dialog-actions">
+      <button type="button" id="sched-delete" class="btn ghost warn-text" hidden>Delete</button>
+      <span class="spacer"></span>
+      <button type="button" id="sched-cancel" class="btn ghost">Cancel</button>
+      <button type="submit" class="btn">Save schedule</button>
+    </div>
+  </form>
+</dialog>
+<script src="/static/app.js"></script>
+</body>
+</html>

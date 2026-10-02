@@ -1,0 +1,92 @@
+# Greenhouse irrigation settings.
+# The installer copies this to /etc/pi_irrigation/config.yaml.
+# After editing:  sudo systemctl restart pi-irrigation
+
+location:
+  name: Pringle Bay
+  latitude: -34.35
+  longitude: 18.83
+
+web:
+  host: 0.0.0.0
+  port: 8080
+  # Optional login for the dashboard (username "admin"). Leave empty on a
+  # trusted home network or when you only use the Tailscale address.
+  password: ""
+
+controller:
+  # esp32 = the real greenhouse box. simulated = a pretend garden for testing.
+  mode: esp32
+  # The ESP32's address. The name works on most home networks; if not, use
+  # the IP address shown on the ESP32's little screen, e.g. http://192.168.1.50
+  url: http://irrigation-esp32.local
+  # Must match API_KEY in the firmware's config.h. Leave empty to turn off.
+  api_key: ""
+  timeout_seconds: 5
+  poll_seconds: 3
+
+safety:
+  max_run_minutes: 30          # no single run is ever longer than this
+  one_zone_at_a_time: true     # one shared pump, so zones take turns
+  no_flow_timeout_seconds: 45  # stop hydro if no flow after this long...
+  no_flow_min_litres_per_min: 0.3
+  leak_alert_seconds: 120      # alert if water flows this long with valves closed
+  leak_min_litres_per_min: 0.3
+
+flow:
+  enabled: true
+  # Measure your own: run exactly 1 litre and count pulses (manual step 24).
+  pulses_per_litre: 450
+
+tank:
+  enabled: true
+  # Which float reading means "water is up at this float": 0 or 1.
+  # Must match FLOAT_WET_VALUE in the firmware (manual step 12).
+  float_wet_value: 0
+  # Never water when the 250 L tank is below the LOW float (protects the pump).
+  lockout_when_low: true
+
+zones:
+  - id: 1
+    name: Hydroponics
+    valve: A                 # MOSFETTI A / GPIO25
+    sensors: []
+    skip_if_wet: false
+    skip_if_rain: false      # greenhouse is covered: rain doesn't reach it
+    monitor_flow: true       # the flow sensor is on the hydro branch
+  - id: 2
+    name: Veggie bed
+    valve: B                 # MOSFETTI B / GPIO26
+    sensors: [1, 2, 3]       # the three probes along the 3.6 m bed
+    skip_if_wet: true
+    skip_if_rain: false
+    monitor_flow: false
+
+# Calibrate each probe (manual step 23): raw reading with the blade dry in air,
+# and in fully wetted bed soil. The dashboard's System section doesn't show raw
+# values, but GET /api/status does (look for "soil" -> "raw").
+soil_sensors:
+  - {id: 1, name: Soil 1, dry_raw: 2900, wet_raw: 1300}
+  - {id: 2, name: Soil 2, dry_raw: 2900, wet_raw: 1300}
+  - {id: 3, name: Soil 3, dry_raw: 2900, wet_raw: 1300}
+
+moisture:
+  enabled: true
+  skip_above_percent: 60     # scheduled bed watering skips above this
+
+weather:
+  # Shown on the dashboard. Only zones with skip_if_rain: true act on it.
+  enabled: true
+  lookahead_hours: 12
+  rain_probability_threshold: 60
+  rain_mm_threshold: 2.0
+  water_if_unavailable: true
+
+notifications:
+  # Free phone alerts: install the "ntfy" app, subscribe to a hard-to-guess
+  # topic name, and put the same name here.
+  enabled: false
+  ntfy_server: https://ntfy.sh
+  ntfy_topic: ""
+
+state_file: /var/lib/pi_irrigation/state.json

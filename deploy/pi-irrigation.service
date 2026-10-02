@@ -1,0 +1,23 @@
+[Unit]
+Description=Greenhouse irrigation dashboard and scheduler
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=irrigation
+Group=irrigation
+WorkingDirectory=/opt/pi_irrigation
+ExecStart=/opt/pi_irrigation/.venv/bin/python -m irrigation --config /etc/pi_irrigation/config.yaml
+Restart=always
+RestartSec=5
+# On stop the app tells the ESP32 to close every valve.
+TimeoutStopSec=20
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/pi_irrigation
+
+[Install]
+WantedBy=multi-user.target

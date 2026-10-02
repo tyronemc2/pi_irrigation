@@ -1,0 +1,38 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]   # 3.11 = Raspberry Pi OS Bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+
+  firmware:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        core: ["esp32:esp32@2.0.17", "esp32:esp32@3.0.7"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp firmware/irrigation_esp32/config.example.h firmware/irrigation_esp32/config.h
+      - uses: arduino/compile-sketches@v1
+        with:
+          fqbn: esp32:esp32:lolin32
+          platforms: |
+            - name: esp32:esp32
+              source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+              version: ${{ matrix.core == 'esp32:esp32@2.0.17' && '2.0.17' || '3.0.7' }}
+          libraries: |
+            - name: Adafruit GFX Library
+            - name: Adafruit SSD1306
+            - name: OneWire
+            - name: DallasTemperature
+          sketch-paths: firmware/irrigation_esp32
