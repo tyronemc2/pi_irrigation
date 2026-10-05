@@ -177,7 +177,7 @@ function renderRunbar() {
   if (run) {
     const left = Math.max(0, run.remaining_s - Math.floor((Date.now() - fetchedAt) / 1000));
     text = `${run.zone}: ${mmss(left)} left`;
-    if (run.litres != null) text += `, ${run.litres} L`;
+    if (run.litres != null) text += `, ${run.litres}\u00a0L`;
   }
   if (state.queue.length) text += `. Then ${state.queue.map((q) => q.zone).join(", ")}`;
   $("#run-text").textContent = text;

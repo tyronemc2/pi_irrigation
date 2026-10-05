@@ -1,6 +1,6 @@
 // Service worker: makes the dashboard installable and opens instantly.
 // Live data (/api/...) always comes from the network; never from cache.
-const CACHE = "greenhouse-v1";
+const CACHE = "veggieshack-v2";
 const SHELL = ["/", "/static/app.css", "/static/app.js", "/manifest.webmanifest",
   "/static/icons/icon-192.png", "/static/icons/apple-touch-icon.png"];
 
