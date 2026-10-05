@@ -82,6 +82,7 @@ class IrrigationSystem:
             zones.append({
                 "id": z["id"], "name": z["name"], "valve": z["valve"],
                 "on": bool(v.get("on")), "moisture": self.controller.moisture(z),
+                "moisture_detail": self.controller.moisture_detail(z),
                 "sensors": [readings[s] for s in z["sensors"]],
                 "skip_if_wet": z["skip_if_wet"], "skip_if_rain": z["skip_if_rain"],
                 "next_run": nexts[0] if nexts else None,

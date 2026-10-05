@@ -27,7 +27,7 @@ DEFAULT_SCHEDULES = [
     # Hydroponics: 15 minutes at the top of every hour, 06:00-18:00
     {"zone_id": 1, "kind": "cycle", "days": [0, 1, 2, 3, 4, 5, 6], "start": "06:00",
      "end": "18:00", "every_minutes": 60, "minutes": 15, "enabled": True},
-    # Veggie bed: 10 minutes at 06:30 daily (skipped if the soil is already wet)
+    # Beds & pots: 10 minutes at 06:30 daily (skipped if every bed is already moist)
     {"zone_id": 2, "kind": "daily", "days": [0, 1, 2, 3, 4, 5, 6], "start": "06:30",
      "minutes": 10, "enabled": True},
 ]

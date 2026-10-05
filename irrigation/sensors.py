@@ -24,9 +24,22 @@ def soil_readings(cfg: dict, status: dict | None) -> dict[int, dict]:
 
 
 def zone_moisture(cfg: dict, zone: dict, readings: dict[int, dict]) -> float | None:
-    vals = [readings[sid]["percent"] for sid in zone.get("sensors", [])
-            if readings.get(sid, {}).get("percent") is not None]
-    return round(sum(vals) / len(vals), 1) if vals else None
+    """The zone's moisture: its driest probe (default) or the average of its probes."""
+    detail = zone_moisture_detail(zone, readings)
+    return detail["percent"] if detail else None
+
+
+def zone_moisture_detail(zone: dict, readings: dict[int, dict]) -> dict | None:
+    probes = [readings[sid] for sid in zone.get("sensors", [])
+              if readings.get(sid, {}).get("percent") is not None]
+    if not probes:
+        return None
+    if zone.get("moisture_from", "driest") == "average":
+        return {"percent": round(sum(p["percent"] for p in probes) / len(probes), 1),
+                "mode": "average", "driest": None}
+    driest = min(probes, key=lambda p: p["percent"])
+    return {"percent": driest["percent"], "mode": "driest",
+            "driest": driest["name"] if len(zone["sensors"]) > 1 else None}
 
 
 def tank_state(cfg: dict, status: dict | None) -> dict:

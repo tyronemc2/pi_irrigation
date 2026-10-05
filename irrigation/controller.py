@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Callable
 
 from .device import DeviceError
-from .sensors import soil_readings, tank_state, zone_moisture
+from .sensors import soil_readings, tank_state, zone_moisture, zone_moisture_detail
 
 log = logging.getLogger(__name__)
 GRACE_SECONDS = 8  # time allowed for the ESP32 to report a valve as open
@@ -75,6 +75,9 @@ class Controller:
 
     def moisture(self, zone: dict) -> float | None:
         return zone_moisture(self.cfg, zone, soil_readings(self.cfg, self.status))
+
+    def moisture_detail(self, zone: dict) -> dict | None:
+        return zone_moisture_detail(zone, soil_readings(self.cfg, self.status))
 
     def _event(self, zone: dict | None, event: str, reason: str, **extra) -> None:
         entry = {"time": self.now().isoformat(timespec="seconds"), "event": event,

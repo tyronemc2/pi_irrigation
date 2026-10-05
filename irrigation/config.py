@@ -40,13 +40,15 @@ DEFAULTS: dict[str, Any] = {
     "zones": [
         {"id": 1, "name": "Hydroponics", "valve": "A", "sensors": [],
          "skip_if_wet": False, "skip_if_rain": False, "monitor_flow": True},
-        {"id": 2, "name": "Veggie bed", "valve": "B", "sensors": [1, 2, 3],
-         "skip_if_wet": True, "skip_if_rain": False, "monitor_flow": False},
+        # One shared line from valve B feeds all three beds
+        {"id": 2, "name": "Beds & pots", "valve": "B", "sensors": [1, 2, 3],
+         "skip_if_wet": True, "skip_if_rain": False, "monitor_flow": False,
+         "moisture_from": "driest"},
     ],
     "soil_sensors": [
-        {"id": 1, "name": "Soil 1", "dry_raw": 2900, "wet_raw": 1300},
-        {"id": 2, "name": "Soil 2", "dry_raw": 2900, "wet_raw": 1300},
-        {"id": 3, "name": "Soil 3", "dry_raw": 2900, "wet_raw": 1300},
+        {"id": 1, "name": "Wall Bed", "dry_raw": 2900, "wet_raw": 1300},
+        {"id": 2, "name": "Window Bed", "dry_raw": 2900, "wet_raw": 1300},
+        {"id": 3, "name": "Alley Pots", "dry_raw": 2900, "wet_raw": 1300},
     ],
     "moisture": {"enabled": True, "skip_above_percent": 60},
     "weather": {
@@ -109,6 +111,11 @@ def validate(cfg: dict) -> dict:
         z.setdefault("skip_if_wet", bool(z["sensors"]))
         z.setdefault("skip_if_rain", False)
         z.setdefault("monitor_flow", True)
+        # Several probes on one valve: "driest" waters unless every probe is moist
+        # (right when they sit in different beds); "average" uses their mean.
+        z.setdefault("moisture_from", "driest")
+        if z["moisture_from"] not in ("driest", "average"):
+            raise ConfigError(f"Zone {z['id']}: moisture_from must be 'driest' or 'average'")
         for sid in z["sensors"]:
             if sid not in sensor_ids:
                 raise ConfigError(f"Zone {z['id']} uses unknown soil sensor {sid}")

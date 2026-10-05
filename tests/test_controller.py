@@ -48,7 +48,7 @@ def test_one_zone_at_a_time_queue(make_system, clock):
     st = s.device.status()["valves"]
     assert not st["A"]["on"] and st["B"]["on"]
     run_for(s, clock, 63)
-    assert [h["zone"] for h in hist(s, "ran")] == ["Veggie bed", "Hydroponics"]
+    assert [h["zone"] for h in hist(s, "ran")] == ["Beds & pots", "Hydroponics"]
 
 
 def test_stop_clears_everything(make_system, clock):
@@ -97,7 +97,7 @@ def test_bed_has_no_flow_check(make_system, clock):
     s.controller.request_run(2, 2)
     run_for(s, clock, 126)
     ran = hist(s, "ran")[0]
-    assert ran["zone"] == "Veggie bed" and ran["litres"] is None  # not metered, so no false "0 L"
+    assert ran["zone"] == "Beds & pots" and ran["litres"] is None  # not metered, so no false "0 L"
 
 
 def test_leak_alert(make_system, clock):

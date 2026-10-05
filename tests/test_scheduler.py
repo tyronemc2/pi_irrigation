@@ -126,7 +126,7 @@ def test_two_day_soak_with_default_schedules(make_system, clock):
     run_for(s, clock, 2 * 24 * 3600, step=5)
     hist = s.store.history(200)
     hydro = [h for h in hist if h["zone"] == "Hydroponics" and h["event"] == "ran"]
-    bed = [h for h in hist if h["zone"] == "Veggie bed" and h["event"] in ("ran", "skipped")]
+    bed = [h for h in hist if h["zone"] == "Beds & pots" and h["event"] in ("ran", "skipped")]
     assert len(hydro) == 24          # 12 cycles a day, never doubled
     assert all(h["minutes"] == 15 for h in hydro)
     assert len(bed) == 2             # one decision per morning
@@ -157,3 +157,23 @@ def test_top_up_keeps_up_with_a_full_bed_run(make_system, clock):
     run_for(s, clock, 11 * 60)
     ran = [h for h in s.store.history() if h["event"] == "ran"]
     assert ran and ran[0]["minutes"] == 10
+
+
+def test_one_dry_bed_still_gets_watered(make_system, clock):
+    from conftest import run_for
+    bed = {"zone_id": 2, "kind": "daily", "days": list(range(7)), "start": "05:01", "minutes": 2, "enabled": True}
+    s = make_system(schedules=[bed])
+    s.device.soil = [1300.0, 1300.0, 2700.0]  # Wall and Window soaked, Alley Pots dry
+    run_for(s, clock, 90)
+    assert s.controller.current and s.controller.current.zone["name"] == "Beds & pots"
+
+
+def test_all_beds_moist_skips_and_names_the_driest(make_system, clock):
+    from conftest import run_for
+    bed = {"zone_id": 2, "kind": "daily", "days": list(range(7)), "start": "05:01", "minutes": 2, "enabled": True}
+    s = make_system(schedules=[bed])
+    s.device.soil = [1300.0, 1400.0, 1900.0]
+    run_for(s, clock, 90)
+    skip = [h for h in s.store.history(50) if h["event"] == "skipped"][0]
+    assert s.controller.current is None
+    assert skip["reason"].startswith("Every bed is already moist (driest: Alley Pots")

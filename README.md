@@ -24,9 +24,9 @@ time. Normally-closed valves also close if power fails.
 ## What it does
 
 - **Hydroponics** runs in cycles, by default 15 minutes at the top of every hour from 06:00 to 18:00.
-- **Veggie bed** waters once a day, by default 10 minutes at 06:30, and skips if the three probes average above 60%.
+- **Beds & pots** (Wall Bed, Window Bed and Alley Pots, all on valve B's shared line) water once a day, by default 10 minutes at 06:30. Each bed has its own probe, and the run is skipped only when every bed is above 60%, so one dry bed is never left waiting because the others are wet.
 - **Greenhouse air temperature**: the DS18B20 hangs in a white sun shield in the greenhouse. The dashboard shows it now, a chart of hourly averages for today and the 3 days before (tap or use the arrow keys for any hour's average, low and high), and an hourly table. A week of hourly history is kept on the Pi.
-- **Temperature watering**: rules like "water the veggie bed for 5 minutes when the air is above 30 °C, at most every 2 hours, between 09:00 and 17:00". Rules act on a 10-minute average so a short spike doesn't trigger them, and tank lockout, pause and the soil-moisture skip still apply. A "below" rule works the same way for cold spells. Add them under *Temperature watering* on the dashboard.
+- **Temperature watering**: rules like "water the beds for 5 minutes when the air is above 30 °C, at most every 2 hours, between 09:00 and 17:00". Rules act on a 10-minute average so a short spike doesn't trigger them, and tank lockout, pause and the soil-moisture skip still apply. A "below" rule works the same way for cold spells. Add them under *Temperature watering* on the dashboard.
 - **Tank lockout**: nothing waters while the 250 L tank is below the LOW float, which protects the pump from running dry. A run in progress stops if the level drops.
 - **One zone at a time**, because there's one pump. A second request waits its turn.
 - **No-flow stop**: if hydro is open but the flow sensor sees no water after 45 seconds, the run stops and you get an alert (pump off, empty tank, blocked filter).
@@ -119,7 +119,7 @@ pressure pump runs on its own pressure switch and you top up the 250 L tank by h
 
 Run through this with water connected and someone watching:
 
-1. Dashboard shows **Online**, tank state matches what you see, all three probes read.
+1. Dashboard shows **Online**, tank state matches what you see, Wall Bed, Window Bed and Alley Pots probes all read.
 2. Water hydroponics 5 min from the dashboard: valve A opens, flow shows on the hydro card, it stops on time, Activity shows litres.
 3. Water veggie bed 5 min: valve B opens, jets spray, stops on time.
 4. Start hydro, then bed: bed waits, then runs after hydro.

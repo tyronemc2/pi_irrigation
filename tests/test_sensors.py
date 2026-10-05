@@ -17,7 +17,8 @@ def test_unplugged_sensor_ignored(cfg):
     st = {"online": True, "soil_raw": [2100, 0, 1300]}
     r = soil_readings(cfg, st)
     assert r[1]["percent"] == 50 and r[2]["percent"] is None and r[3]["percent"] == 100
-    assert zone_moisture(cfg, cfg["zones"][1], r) == 75
+    assert zone_moisture(cfg, cfg["zones"][1], r) == 50  # driest bed that has a reading
+    assert zone_moisture(cfg, dict(cfg["zones"][1], moisture_from="average"), r) == 75
 
 
 def test_tank_states(cfg):

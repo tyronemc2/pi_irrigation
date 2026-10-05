@@ -123,9 +123,11 @@ class Scheduler:
         if self.controller.tank_blocks_watering():
             return "Tank is low"
         if zone.get("skip_if_wet") and self.cfg["moisture"]["enabled"]:
-            m = self.controller.moisture(zone)
-            if m is not None and m >= self.cfg["moisture"]["skip_above_percent"]:
-                return f"Soil is already moist ({m:g}%)"
+            d = self.controller.moisture_detail(zone)
+            if d and d["percent"] >= self.cfg["moisture"]["skip_above_percent"]:
+                if d["driest"]:
+                    return f"Every bed is already moist (driest: {d['driest']} {d['percent']:g}%)"
+                return f"Soil is already moist ({d['percent']:g}%)"
         if zone.get("skip_if_rain") and self.cfg["weather"]["enabled"]:
             f = self.forecast.check()
             if f["rain_expected"]:

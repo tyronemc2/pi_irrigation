@@ -6,7 +6,7 @@ from irrigation.config import ConfigError, load_config
 def test_defaults_match_greenhouse():
     c = load_config(data={})
     names = [z["name"] for z in c["zones"]]
-    assert names == ["Hydroponics", "Veggie bed"]
+    assert names == ["Hydroponics", "Beds & pots"]
     assert c["zones"][1]["sensors"] == [1, 2, 3]
     assert c["zones"][0]["skip_if_rain"] is False and c["zones"][1]["skip_if_rain"] is False
 

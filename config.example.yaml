@@ -55,9 +55,11 @@ zones:
     skip_if_rain: false      # greenhouse is covered: rain doesn't reach it
     monitor_flow: true       # the flow sensor is on the hydro branch
   - id: 2
-    name: Veggie bed
+    name: Beds & pots          # one shared line feeds all three beds
     valve: B                 # MOSFETTI B / GPIO26
-    sensors: [1, 2, 3]       # the three probes along the 3.6 m bed
+    sensors: [1, 2, 3]       # one probe in each bed
+    # driest = water unless every bed is moist. average = use the mean of the probes.
+    moisture_from: driest
     skip_if_wet: true
     skip_if_rain: false
     monitor_flow: false
@@ -66,9 +68,9 @@ zones:
 # and in fully wetted bed soil. The dashboard's System section doesn't show raw
 # values, but GET /api/status does (look for "soil" -> "raw").
 soil_sensors:
-  - {id: 1, name: Soil 1, dry_raw: 2900, wet_raw: 1300}
-  - {id: 2, name: Soil 2, dry_raw: 2900, wet_raw: 1300}
-  - {id: 3, name: Soil 3, dry_raw: 2900, wet_raw: 1300}
+  - {id: 1, name: Wall Bed, dry_raw: 2900, wet_raw: 1300}
+  - {id: 2, name: Window Bed, dry_raw: 2900, wet_raw: 1300}
+  - {id: 3, name: Alley Pots, dry_raw: 2900, wet_raw: 1300}
 
 moisture:
   enabled: true

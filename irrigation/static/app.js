@@ -103,11 +103,15 @@ function renderZones() {
     const queued = state.queue.some((q) => q.zone_id === z.id);
     let body = "";
     if (z.sensors.length) {
-      const m = z.moisture;
-      body += `<div class="moisture"><strong>${m == null ? "–" : Math.round(m) + "%"}</strong><span>soil moisture</span></div>
+      const m = z.moisture, d = z.moisture_detail;
+      const what = d && d.mode === "driest" && z.sensors.length > 1 ? `driest bed${d.driest ? ": " + d.driest : ""}`
+        : d && d.mode === "average" ? "average soil moisture" : "soil moisture";
+      body += `<div class="moisture"><strong>${m == null ? "–" : Math.round(m) + "%"}</strong><span>${esc(what)}</span></div>
         <div class="probes">${z.sensors.map((s) => `<div class="probe">${esc(s.name)} ${s.percent == null ? "no reading" : Math.round(s.percent) + "%"}
         <div class="bar"><i style="width:${s.percent ?? 0}%"></i></div></div>`).join("")}</div>`;
-      if (z.skip_if_wet) body += `<p class="zone-note">Scheduled watering is skipped above ${state.limits.moist_threshold}%.</p>`;
+      if (z.skip_if_wet) body += `<p class="zone-note">${d && d.mode === "driest" && z.sensors.length > 1
+        ? `Scheduled watering is skipped only when every bed is above ${state.limits.moist_threshold}%.`
+        : `Scheduled watering is skipped above ${state.limits.moist_threshold}%.`}</p>`;
     }
     if (running && state.flow_lpm != null && state.running && state.running.litres != null) {
       body += `<p class="zone-note">${state.flow_lpm.toFixed(1)} L/min, ${state.running.litres} L so far</p>`;
