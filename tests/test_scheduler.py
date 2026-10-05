@@ -147,3 +147,13 @@ def test_refill_only_at_low_cuts_bed_runs_short(make_system, clock):
     run_for(s, clock, 15 * 60)
     stopped = [h for h in s.store.history() if h["event"] == "stopped"]
     assert stopped and "low float" in stopped[0]["reason"]
+
+
+def test_top_up_keeps_up_with_a_full_bed_run(make_system, clock):
+    s = make_system(schedules=[])
+    s.device.tank_pct = 86  # just full
+    ok, _ = s.controller.request_run(2, 10)
+    assert ok
+    run_for(s, clock, 11 * 60)
+    ran = [h for h in s.store.history() if h["event"] == "ran"]
+    assert ran and ran[0]["minutes"] == 10

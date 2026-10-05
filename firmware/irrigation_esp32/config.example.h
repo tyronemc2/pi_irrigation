@@ -32,7 +32,7 @@
 //      (LOW then acts only as the pump-protection cutoff). Recommended.
 //  0 = only when the LOW float goes dry.
 #define REFILL_TOPUP 1
-#define REFILL_TOPUP_DELAY_SECONDS 600
+#define REFILL_TOPUP_DELAY_SECONDS 120
 // If HIGH isn't reached in this time, stop and raise a fault (empty rain tank,
 // stuck float, blocked pipe). Reset from the dashboard.
 #define REFILL_MAX_SECONDS 1200

@@ -115,7 +115,7 @@ class SimulatedDevice:
         self._refill_started = 0.0
         self.refill_max_s, self.refill_lpm = 1200, 30.0
         self.bed_valve, self.bed_lpm = "B", 12.0
-        self.refill_topup, self.topup_delay = True, 600
+        self.refill_topup, self.topup_delay = True, 120
         self._high_dry_since: float | None = None
         self.leak_pps = 0.0  # set >0 to simulate a leak
         self.offline = False
