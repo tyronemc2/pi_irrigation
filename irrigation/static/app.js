@@ -1,7 +1,8 @@
 "use strict";
 const $ = (s) => document.querySelector(s);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-let state = null, fetchedAt = 0, editing = null, failures = 0;
+let state = null, fetchedAt = 0, editing = null, editingRule = null, failures = 0;
+let temps = null, tempSel = null, chartKey = "";
 
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -82,7 +83,6 @@ function renderTank() {
   $("#refill-reset").hidden = !(r && r.fault);
   const p = state.pump;
   $("#pump").textContent = !state.controller.online || !p ? "–" : !p.enabled ? "Runs on its own pressure switch" : p.on ? "Running" : "Off";
-  $("#temp").textContent = state.water_temp_c == null ? "No reading" : `${state.water_temp_c.toFixed(1)} °C`;
 }
 
 function zoneState(z) {
@@ -142,7 +142,7 @@ function renderSchedules() {
 function historyText(h) {
   const amount = h.litres != null ? `, ${h.litres} L` : "";
   switch (h.event) {
-    case "ran": return `${h.zone} watered for ${h.minutes} min${amount} (${h.reason.toLowerCase()})`;
+    case "ran": return `${h.zone} watered for ${h.minutes} min${amount} (${h.reason.charAt(0).toLowerCase() + h.reason.slice(1)})`;
     case "skipped": return `${h.zone} skipped: ${h.reason}`;
     case "stopped": return `${h.zone} stopped after ${h.minutes} min${amount}: ${h.reason}`;
     default: return h.detail ? `${h.reason}: ${h.detail}` : h.reason;
@@ -153,6 +153,196 @@ function renderHistory() {
     `<li class="ev-${esc(h.event)}"><time datetime="${esc(h.time)}">${esc(shortTime(h.time))}</time><span>${esc(historyText(h))}</span></li>`
   ).join("") : `<li class="empty">Nothing has run yet.</li>`;
 }
+
+// ---------- greenhouse air temperature ----------
+const CH = {W: 640, H: 230, L: 40, R: 10, T: 14, B: 30, SLOTS: 96};
+const fmtT = (v) => `${v.toFixed(1)}\u00a0°C`;
+const hourLabel = (t) => t.slice(11, 16);
+const dayLabel = (t) => { const d = new Date(t); return `${DAYS[(d.getDay() + 6) % 7]} ${d.getDate()}`; };
+const svgEl = (tag, attrs, text) => {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text != null) e.textContent = text;
+  return e;
+};
+
+async function fetchTemps() {
+  try { temps = await api("/api/temperature"); renderClimate(true); } catch (_) { /* shown as stale */ }
+}
+
+function renderClimate(force = false) {
+  if (state) $("#air-now").textContent = state.air_temp_c == null ? "No reading" : fmtT(state.air_temp_c);
+  if (!temps) return;
+  const rules = (state ? state.temp_rules : []).filter((r) => r.enabled);
+  const key = JSON.stringify([temps.hours, rules.map((r) => [r.temp_c, r.when])]);
+  if (!force && key === chartKey) return;
+  chartKey = key;
+  renderChart(rules); renderTempStats(); renderTempTable();
+}
+
+function renderChart(rules) {
+  const svg = $("#temp-chart"), hours = temps.hours;
+  CH.W = Math.round(Math.max(320, Math.min(900, svg.clientWidth || 640)));  // 1 unit = 1 px, so text stays readable on phones
+  svg.setAttribute("viewBox", `0 0 ${CH.W} ${CH.H}`);
+  const {W, H, L, R, T, B, SLOTS} = CH;
+  svg.replaceChildren();
+  const slot = (W - L - R) / SLOTS, x = (i) => L + (i + 0.5) * slot;
+  const have = hours.filter((h) => h.avg != null);
+  let lo = Math.min(...have.map((h) => h.min), ...rules.map((r) => r.temp_c));
+  let hi = Math.max(...have.map((h) => h.max), ...rules.map((r) => r.temp_c));
+  if (!isFinite(lo)) { lo = 10; hi = 30; }
+  lo = Math.floor(lo) - 1; hi = Math.ceil(hi) + 1;
+  if (hi - lo < 8) { const mid = (hi + lo) / 2; lo = Math.floor(mid - 4); hi = Math.ceil(mid + 4); }
+  const step = hi - lo <= 14 ? 2 : hi - lo <= 35 ? 5 : 10;
+  const y = (v) => T + (hi - v) / (hi - lo) * (H - T - B);
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    svg.append(svgEl("line", {x1: L, x2: W - R, y1: y(v), y2: y(v), class: "grid"}));
+    svg.append(svgEl("text", {x: L - 6, y: y(v) + 4, "text-anchor": "end", class: "axis"}, `${v}°`));
+  }
+  for (let d = 0; d < SLOTS / 24; d++) {
+    if (d) svg.append(svgEl("line", {x1: L + d * 24 * slot, x2: L + d * 24 * slot, y1: T, y2: H - B, class: "midnight"}));
+    const first = hours[d * 24];
+    if (first) svg.append(svgEl("text", {x: L + (d * 24 + 12) * slot, y: H - 9, "text-anchor": "middle", class: "day"}, dayLabel(first.t)));
+  }
+  // min-max band and average line, broken where hours are missing
+  let seg = [];
+  const flush = () => {
+    if (!seg.length) return;
+    if (seg.length === 1) {
+      svg.append(svgEl("circle", {cx: x(seg[0].i), cy: y(seg[0].avg), r: 3, class: "cursor-dot"}));
+    } else {
+      const top = seg.map((p) => `${x(p.i)},${y(p.max)}`), bot = seg.slice().reverse().map((p) => `${x(p.i)},${y(p.min)}`);
+      svg.append(svgEl("polygon", {points: [...top, ...bot].join(" "), class: "band"}));
+      svg.append(svgEl("path", {d: "M" + seg.map((p) => `${x(p.i)} ${y(p.avg)}`).join(" L"), class: "line"}));
+    }
+    seg = [];
+  };
+  hours.forEach((h, i) => { if (h.avg == null) flush(); else seg.push({...h, i}); });
+  flush();
+  for (const r of rules) {
+    svg.append(svgEl("line", {x1: L, x2: W - R, y1: y(r.temp_c), y2: y(r.temp_c), class: "rule"}));
+    svg.append(svgEl("text", {x: W - R - 4, y: y(r.temp_c) - 5, "text-anchor": "end", class: "rule-label"},
+      `${r.when === "above" ? "above" : "below"} ${r.temp_c}°: water`));
+  }
+  if (!have.length) {
+    svg.append(svgEl("text", {x: (L + W - R) / 2, y: (T + H - B) / 2, "text-anchor": "middle", class: "empty-msg"},
+      "No readings yet. Points appear as each hour fills in."));
+  }
+  const cur = svgEl("g", {class: "cursor-g", visibility: "hidden"});
+  cur.append(svgEl("line", {y1: T, y2: H - B, class: "cursor"}), svgEl("circle", {r: 5, class: "cursor-dot"}));
+  svg.append(cur);
+  svg._geo = {x, y, cur};
+  if (tempSel != null) selectHour(Math.min(tempSel, hours.length - 1));
+}
+
+function selectHour(i) {
+  const hours = temps && temps.hours;
+  if (!hours || !hours.length) return;
+  tempSel = Math.max(0, Math.min(hours.length - 1, i));
+  const h = hours[tempSel], g = $("#temp-chart")._geo;
+  g.cur.setAttribute("visibility", "visible");
+  g.cur.firstChild.setAttribute("x1", g.x(tempSel)); g.cur.firstChild.setAttribute("x2", g.x(tempSel));
+  const dot = g.cur.lastChild;
+  dot.setAttribute("visibility", h.avg == null ? "hidden" : "visible");
+  if (h.avg != null) { dot.setAttribute("cx", g.x(tempSel)); dot.setAttribute("cy", g.y(h.avg)); }
+  $("#temp-readout").innerHTML = `${esc(dayLabel(h.t))}, ${esc(hourLabel(h.t))} · ` + (h.avg == null ? "no reading"
+    : `<b>${esc(fmtT(h.avg))}</b> (low ${esc(h.min.toFixed(1))}, high ${esc(h.max.toFixed(1))})`);
+}
+
+function extremes(list) {
+  const have = list.filter((h) => h.avg != null);
+  if (!have.length) return null;
+  const lo = have.reduce((a, b) => (b.min < a.min ? b : a)), hi = have.reduce((a, b) => (b.max > a.max ? b : a));
+  return {lo, hi};
+}
+function renderTempStats() {
+  const today = temps.hours.filter((h) => h.t.slice(0, 10) === temps.now.slice(0, 10));
+  const t = extremes(today), all = extremes(temps.hours);
+  const parts = [];
+  if (t) parts.push(`Today: low ${fmtT(t.lo.min)} at ${hourLabel(t.lo.t)}, high ${fmtT(t.hi.max)} at ${hourLabel(t.hi.t)}`);
+  if (all) parts.push(`4 days: low ${fmtT(all.lo.min)} (${dayLabel(all.lo.t)}), high ${fmtT(all.hi.max)} (${dayLabel(all.hi.t)})`);
+  $("#temp-stats").innerHTML = parts.map((p) => `<span>${esc(p)}</span>`).join("");
+}
+
+function renderTempTable() {
+  const days = [];
+  for (let d = 0; d * 24 < temps.hours.length; d++) days.push(temps.hours.slice(d * 24, d * 24 + 24));
+  const head = `<thead><tr><th scope="col">Hour</th>${days.map((d) => `<th scope="col">${esc(dayLabel(d[0].t))}</th>`).join("")}</tr></thead>`;
+  let rows = "";
+  for (let h = 0; h < 24; h++) {
+    rows += `<tr><th scope="row">${String(h).padStart(2, "0")}:00</th>` + days.map((d) => {
+      const e = d[h];
+      if (!e) return "<td></td>";
+      return e.avg == null ? `<td class="none">–</td>` : `<td>${e.avg.toFixed(1)}</td>`;
+    }).join("") + "</tr>";
+  }
+  $("#temp-table").innerHTML = head + `<tbody>${rows}</tbody>`;
+}
+
+const chart = $("#temp-chart");
+function chartPoint(e) {
+  if (!temps) return;
+  const r = chart.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * CH.W;
+  selectHour(Math.floor((x - CH.L) / ((CH.W - CH.L - CH.R) / CH.SLOTS)));
+}
+chart.addEventListener("pointerdown", chartPoint);
+let resizeTimer;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => temps && renderClimate(true), 150); });
+chart.addEventListener("pointermove", (e) => { if (e.pointerType === "mouse" || e.buttons) chartPoint(e); });
+chart.addEventListener("keydown", (e) => {
+  if (!temps || !temps.hours.length) return;
+  const last = temps.hours.length - 1, cur = tempSel ?? last;
+  const next = {ArrowLeft: cur - 1, ArrowRight: cur + 1, Home: 0, End: last, PageUp: cur - 24, PageDown: cur + 24}[e.key];
+  if (next == null) return;
+  e.preventDefault(); selectHour(next);
+});
+
+// ---------- temperature rules ----------
+const COOLDOWN = {30: "every 30 minutes", 60: "every hour", 120: "every 2 hours", 180: "every 3 hours",
+  240: "every 4 hours", 360: "every 6 hours", 720: "every 12 hours", 1440: "once a day"};
+function renderRules() {
+  const zones = Object.fromEntries(state.zones.map((z) => [z.id, z.name]));
+  const list = state.temp_rules || [];
+  $("#rules").innerHTML = list.length ? list.map((r) => {
+    const what = `${r.minutes}\u00a0min when ${r.when} ${r.temp_c}\u00a0°C`;
+    const more = `${r.start} to ${r.end}, at most ${COOLDOWN[r.cooldown_minutes] || ""}`;
+    const last = r.last_triggered ? `. Last triggered ${when(r.last_triggered)}` : "";
+    return `<li class="sched${r.enabled ? "" : " off"}"><div class="sched-main"><b>${esc(zones[r.zone_id] || "Unknown zone")}: ${esc(what)}</b>
+      <small>${esc(more)}${esc(last)}${r.enabled ? "" : ". Turned off"}</small></div>
+      <button class="btn small ghost" data-rule="${r.id}">Edit</button></li>`;
+  }).join("") : `<li class="empty">No rules yet. Add one to water when it gets hot (or cold).</li>`;
+}
+function openRule(r) {
+  editingRule = r || null;
+  const f = $("#rule-form");
+  $("#rule-title").textContent = r ? "Edit temperature rule" : "Add temperature rule";
+  $("#r-zone").innerHTML = state.zones.map((z) => `<option value="${z.id}">${esc(z.name)}</option>`).join("");
+  const v = r || {zone_id: state.zones[state.zones.length - 1].id, when: "above", temp_c: 30, minutes: 5,
+    cooldown_minutes: 120, start: "09:00", end: "17:00", enabled: true};
+  f.zone_id.value = v.zone_id;
+  f.querySelector(`input[name=when][value=${v.when}]`).checked = true;
+  f.temp_c.value = v.temp_c; f.minutes.value = v.minutes; f.cooldown_minutes.value = v.cooldown_minutes;
+  f.start.value = v.start; f.end.value = v.end; f.enabled.checked = v.enabled;
+  $("#rule-delete").hidden = !r;
+  $("#rule-error").textContent = "";
+  $("#rule-dialog").showModal();
+}
+$("#rule-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const data = {zone_id: +f.zone_id.value, when: f.when.value, temp_c: +f.temp_c.value, minutes: +f.minutes.value,
+    cooldown_minutes: +f.cooldown_minutes.value, start: f.start.value, end: f.end.value, enabled: f.enabled.checked};
+  try {
+    const r = editingRule ? await api(`/api/temp-rules/${editingRule.id}`, "PUT", data) : await api("/api/temp-rules", "POST", data);
+    $("#rule-dialog").close(); toast(r.message); refresh();
+  } catch (err) { $("#rule-error").textContent = err.message; }
+});
+$("#rule-cancel").addEventListener("click", () => $("#rule-dialog").close());
+$("#rule-delete").addEventListener("click", async () => {
+  if (!editingRule || !confirm("Delete this temperature rule?")) return;
+  $("#rule-dialog").close();
+  act(`/api/temp-rules/${editingRule.id}`, undefined, "DELETE").catch(() => {});
+});
 
 function renderSystem() {
   const c = state.controller, rows = [];
@@ -186,7 +376,7 @@ function renderRunbar() {
 function render() {
   renderLink();
   if (!state) return;
-  renderTank(); renderZones(); renderSchedules(); renderHistory(); renderSystem(); renderRunbar();
+  renderTank(); renderZones(); renderClimate(); renderSchedules(); renderRules(); renderHistory(); renderSystem(); renderRunbar();
 }
 
 async function refresh() {
@@ -250,6 +440,8 @@ document.addEventListener("click", (e) => {
   else if (b.id === "resume") act("/api/resume").catch(() => {});
   else if (b.id === "stop") act("/api/stop").catch(() => {});
   else if (b.id === "add-schedule") state && openDialog();
+  else if (b.dataset.rule) openRule(state.temp_rules.find((r) => r.id === +b.dataset.rule));
+  else if (b.id === "add-rule") state && openRule();
   else if (b.id === "refill-reset") act("/api/refill", {action: "reset"}).catch(() => {});
   else if (b.id === "notify-test") act("/api/notify-test").catch(() => {});
 });
@@ -267,6 +459,8 @@ if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWor
 
 // ---------- loop ----------
 refresh();
+fetchTemps();
 setInterval(() => { if (!document.hidden) refresh(); }, 3000);
+setInterval(() => { if (!document.hidden) fetchTemps(); }, 5 * 60 * 1000);
 setInterval(() => { if (state && (state.running)) { renderRunbar(); renderZones(); } }, 1000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); fetchTemps(); } });

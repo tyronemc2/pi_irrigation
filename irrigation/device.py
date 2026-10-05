@@ -16,6 +16,8 @@ tests and for trying the dashboard without hardware.
 from __future__ import annotations
 
 import logging
+import math
+from datetime import datetime
 import threading
 import time
 from typing import Callable
@@ -104,7 +106,7 @@ class SimulatedDevice:
         self.valve_sensors = valve_sensors or {"A": [1, 2], "B": [3]}
         self.pps = pulses_per_litre * litres_per_min / 60.0
         self.soil = [2300.0, 2400.0, 2200.0]
-        self.temp_c = 19.5
+        self.temp_c: float | None = None  # None = follow a daily curve; tests can set a value
         # 250 L tank: LOW float at 40%, HIGH float at 85%. Floats read 0 when submerged.
         self.tank_pct = 70.0
         self.force_low: int | None = None   # tests can force float readings
@@ -165,6 +167,13 @@ class SimulatedDevice:
         for i in range(3):
             self.soil[i] = min(2900.0, self.soil[i] + 0.002 * dt)
 
+    def _air_temp(self) -> float:
+        if self.temp_c is not None:
+            return self.temp_c
+        now = datetime.now()  # a warm afternoon, cool night: 12 °C at 03:00, 28 °C at 15:00
+        h = now.hour + now.minute / 60
+        return round(20 + 8 * math.sin((h - 9) / 24 * 2 * math.pi), 2)
+
     def _float(self, level: float) -> int:
         forced = self.force_high if level > 50 else self.force_low
         if forced is not None:
@@ -180,7 +189,7 @@ class SimulatedDevice:
             valves = {v: {"on": self._until[v] > now,
                           "remaining_s": max(0, int(round(self._until[v] - now)))} for v in VALVES}
             return _normalise({
-                "soil_raw": [round(x) for x in self.soil], "temp_c": self.temp_c,
+                "soil_raw": [round(x) for x in self.soil], "temp_c": self._air_temp(),
                 "float_low": self._float(40), "float_high": self._float(85),
                 "flow_pulses": int(self._pulses), "valves": valves,
                 "uptime_s": int(now - self._start), "fw": "simulated", "rssi": -58,

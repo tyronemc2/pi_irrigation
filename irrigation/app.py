@@ -7,6 +7,7 @@ from functools import wraps
 
 from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 
+from .climate import validate_rule
 from .scheduler import validate_schedule
 
 
@@ -118,6 +119,44 @@ def create_app(system) -> Flask:
         if not system.store.delete_schedule(sid):
             return jsonify(ok=False, message="Schedule not found"), 404
         return jsonify(ok=True, message="Schedule deleted")
+
+    @app.get("/api/temperature")
+    @auth
+    def temperature():
+        now = system.now()
+        return jsonify(now=now.isoformat(timespec="seconds"), current=system.climate.air_temp(),
+                       average_10min=system.climate.log.smoothed(now),
+                       hours=system.climate.log.series(now))
+
+    def _clean_rule(data):
+        return validate_rule(data, system.controller.zones.keys(), cfg["safety"]["max_run_minutes"])
+
+    @app.post("/api/temp-rules")
+    @auth
+    def add_rule():
+        try:
+            r = system.store.add_rule(_clean_rule(body()))
+        except ValueError as exc:
+            return jsonify(ok=False, message=str(exc)), 400
+        return jsonify(ok=True, message="Temperature rule saved", rule=r)
+
+    @app.put("/api/temp-rules/<int:rid>")
+    @auth
+    def update_rule(rid):
+        try:
+            r = system.store.update_rule(rid, _clean_rule(body()))
+        except ValueError as exc:
+            return jsonify(ok=False, message=str(exc)), 400
+        if not r:
+            return jsonify(ok=False, message="Rule not found"), 404
+        return jsonify(ok=True, message="Temperature rule saved", rule=r)
+
+    @app.delete("/api/temp-rules/<int:rid>")
+    @auth
+    def delete_rule(rid):
+        if not system.store.delete_rule(rid):
+            return jsonify(ok=False, message="Rule not found"), 404
+        return jsonify(ok=True, message="Temperature rule deleted")
 
     @app.post("/api/notify-test")
     @auth

@@ -17,6 +17,10 @@ DEFAULT_STATE = {
     "history": [],        # newest first
     "paused_until": None, # ISO timestamp
     "next_id": 1,
+    "temp_rules": [],     # temperature-triggered watering (see climate.py)
+    "temp_rule_last": {}, # rule id -> when it last fired
+    "next_rule_id": 1,
+    "temp_history": [],   # hourly air temperature, oldest first
 }
 
 DEFAULT_SCHEDULES = [
@@ -89,6 +93,37 @@ class StateStore:
     def schedules(self) -> list[dict]:
         with self._lock:
             return copy.deepcopy(self.data["schedules"])
+
+    # temperature rules
+    def add_rule(self, rule: dict) -> dict:
+        with self._lock:
+            rule["id"] = self.data.get("next_rule_id", 1)
+            self.data["next_rule_id"] = rule["id"] + 1
+            self.data.setdefault("temp_rules", []).append(rule)
+            self.save()
+            return rule
+
+    def update_rule(self, rid: int, rule: dict) -> dict | None:
+        with self._lock:
+            for i, r in enumerate(self.data.get("temp_rules", [])):
+                if r["id"] == rid:
+                    rule["id"] = rid
+                    self.data["temp_rules"][i] = rule
+                    self.save()
+                    return rule
+            return None
+
+    def delete_rule(self, rid: int) -> bool:
+        with self._lock:
+            rules = self.data.get("temp_rules", [])
+            self.data["temp_rules"] = [r for r in rules if r["id"] != rid]
+            self.data.get("temp_rule_last", {}).pop(str(rid), None)
+            self.save()
+            return len(self.data["temp_rules"]) < len(rules)
+
+    def rules(self) -> list[dict]:
+        with self._lock:
+            return copy.deepcopy(self.data.get("temp_rules", []))
 
     # history
     def log(self, entry: dict) -> None:

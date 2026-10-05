@@ -6,6 +6,7 @@ import threading
 import time
 from datetime import datetime
 
+from .climate import Climate
 from .controller import Controller
 from .device import DeviceError, build_device
 from .notifier import Notifier
@@ -27,6 +28,7 @@ class IrrigationSystem:
         self.forecast = forecast or RainForecast(cfg, clock=clock)
         self.controller = Controller(cfg, self.device, self.store, self.notifier, clock, now)
         self.scheduler = Scheduler(cfg, self.controller, self.store, self.forecast, self.notifier)
+        self.climate = Climate(self.controller, self.store, self.scheduler)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -39,7 +41,9 @@ class IrrigationSystem:
 
     def step(self) -> None:
         self.controller.tick()
-        self.scheduler.check(self.now())
+        now = self.now()
+        self.scheduler.check(now)
+        self.climate.step(now)
 
     def _loop(self) -> None:
         interval = self.cfg["controller"]["poll_seconds"]
@@ -59,6 +63,7 @@ class IrrigationSystem:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=10)
+        self.climate.log.flush()
         try:
             self.device.all_off()
         except DeviceError:
@@ -89,7 +94,8 @@ class IrrigationSystem:
                            "error": st.get("error")},
             "zones": zones,
             "running": snap["running"], "queue": snap["queue"],
-            "water_temp_c": st.get("temp_c"),
+            "air_temp_c": self.climate.air_temp(),
+            "temp_rules": self.climate.rules_view(),
             "pump": st.get("pump"), "refill": st.get("refill"), "rssi": st.get("rssi"),
             "flow_lpm": snap["flow_lpm"],
             "tank": self.controller.tank(),

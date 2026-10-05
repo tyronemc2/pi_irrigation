@@ -10,8 +10,9 @@ schedule and pause.
   ┌──────────────────────────────┐   WiFi   ┌──────────────────────────────┐
   │ Dashboard / phone app        │ ───────▶ │ Valve A  hydroponics (GPIO25)│
   │ Schedules and hydro cycles   │   HTTP   │ Valve B  veggie bed (GPIO26) │
-  │ Moisture skip, tank lockout  │ ◀─────── │ 3 soil probes, water temp    │
-  │ Flow, leak and fault alerts  │          │ LOW/HIGH floats, flow sensor │
+  │ Moisture skip, tank lockout  │ ◀─────── │ 3 soil probes, air temp      │
+  │ Temperature rules + history  │          │ LOW/HIGH floats, flow sensor │
+  │ Flow, leak and fault alerts  │          │                              │
   │ ntfy phone notifications     │          │ Own safety timers            │
   └──────────────────────────────┘          └──────────────────────────────┘
 ```
@@ -24,6 +25,8 @@ time. Normally-closed valves also close if power fails.
 
 - **Hydroponics** runs in cycles, by default 15 minutes at the top of every hour from 06:00 to 18:00.
 - **Veggie bed** waters once a day, by default 10 minutes at 06:30, and skips if the three probes average above 60%.
+- **Greenhouse air temperature**: the DS18B20 hangs in a white sun shield in the greenhouse. The dashboard shows it now, a chart of hourly averages for today and the 3 days before (tap or use the arrow keys for any hour's average, low and high), and an hourly table. A week of hourly history is kept on the Pi.
+- **Temperature watering**: rules like "water the veggie bed for 5 minutes when the air is above 30 °C, at most every 2 hours, between 09:00 and 17:00". Rules act on a 10-minute average so a short spike doesn't trigger them, and tank lockout, pause and the soil-moisture skip still apply. A "below" rule works the same way for cold spells. Add them under *Temperature watering* on the dashboard.
 - **Tank lockout**: nothing waters while the 250 L tank is below the LOW float, which protects the pump from running dry. A run in progress stops if the level drops.
 - **One zone at a time**, because there's one pump. A second request waits its turn.
 - **No-flow stop**: if hydro is open but the flow sensor sees no water after 45 seconds, the run stops and you get an alert (pump off, empty tank, blocked filter).
@@ -146,7 +149,9 @@ Open http://localhost:8080. The simulated garden has a tank, drying soil and a f
 | Soil % looks wrong | Recalibrate `dry_raw` / `wet_raw` for that probe |
 | Hydro stops with *No water flowed* but water is running | Flow sensor wiring/divider (manual step 13), arrow direction, or `pulses_per_litre` far too high |
 | Bed never waters | Soil above `skip_above_percent`, or schedules paused. Check Activity. |
-| Water temp *No reading* | DS18B20 and its 4.7k pull-up (manual step 11) |
+| Air temp *No reading* | DS18B20 and its 4.7k pull-up (manual step 11). On a long cable, try a 2.2k instead. |
+| Air temp reads high on sunny days | The probe needs shade: hang it inside a ventilated white shield (build book step 18). |
+| A temperature rule never runs | Check its hours, that it's Active, and the Activity list: tank low, paused or moist soil skips are logged there. |
 
 ## Project layout
 
@@ -164,6 +169,9 @@ tests/             automated tests (pytest), run on GitHub for every push
 pip install -r requirements-dev.txt
 pytest
 ```
+
+The Pi's dashboard API also has `GET /api/temperature` (hourly series for the last 4
+days) and `POST/PUT/DELETE /api/temp-rules`.
 
 The ESP32 HTTP API: `GET /api/status`; `POST /api/valve?valve=A&seconds=600` (0 closes);
 `POST /api/off`; `POST /api/refill?action=start|stop|reset`. Send `X-Api-Key` if set.

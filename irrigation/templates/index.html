@@ -74,7 +74,6 @@
       <dl class="facts">
         <div><dt>Refill</dt><dd id="refill">–</dd></div>
         <div><dt>Pump</dt><dd id="pump">–</dd></div>
-        <div><dt>Water</dt><dd id="temp">–</dd></div>
       </dl>
       <button id="refill-reset" class="btn small warn" hidden>Clear refill fault</button>
     </div>
@@ -83,6 +82,20 @@
   <section aria-labelledby="zones-h">
     <h2 id="zones-h" class="section-h">Watering</h2>
     <div id="zones" class="zones"></div>
+  </section>
+
+  <section class="climate" aria-labelledby="climate-h">
+    <div class="section-row">
+      <h2 id="climate-h" class="section-h">Greenhouse air</h2>
+      <p class="air-now"><strong id="air-now">–</strong></p>
+    </div>
+    <p id="temp-readout" class="temp-readout" aria-live="polite">Hourly average over the last 4 days. Tap the chart for a reading.</p>
+    <svg id="temp-chart" class="temp-chart" viewBox="0 0 640 230" tabindex="0" role="img" aria-label="Air temperature, hourly, last 4 days. Use the arrow keys to read each hour."></svg>
+    <p id="temp-stats" class="temp-stats"></p>
+    <details class="hourly">
+      <summary>Hourly readings</summary>
+      <div class="table-wrap"><table id="temp-table"></table></div>
+    </details>
   </section>
 
   <section aria-labelledby="sched-h">
@@ -98,6 +111,14 @@
       <button class="btn small ghost" data-pause="3">3 days</button>
       <button class="btn small ghost" data-pause="7">7 days</button>
     </div>
+  </section>
+
+  <section aria-labelledby="rules-h">
+    <div class="section-row">
+      <h2 id="rules-h" class="section-h">Temperature watering</h2>
+      <button id="add-rule" class="btn small">Add rule</button>
+    </div>
+    <ul id="rules" class="list"></ul>
   </section>
 
   <section aria-labelledby="hist-h">
@@ -149,6 +170,38 @@
       <span class="spacer"></span>
       <button type="button" id="sched-cancel" class="btn ghost">Cancel</button>
       <button type="submit" class="btn">Save schedule</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="rule-dialog">
+  <form id="rule-form" method="dialog">
+    <h2 id="rule-title">Add temperature rule</h2>
+    <label>Water <select name="zone_id" id="r-zone"></select></label>
+    <fieldset class="kind">
+      <legend>When the greenhouse air is</legend>
+      <label><input type="radio" name="when" value="above" checked> Above</label>
+      <label><input type="radio" name="when" value="below"> Below</label>
+    </fieldset>
+    <div class="grid2">
+      <label>Temperature (°C) <input type="number" name="temp_c" step="0.5" min="-10" max="60" value="30" inputmode="decimal" required></label>
+      <label>Run for (minutes) <input type="number" name="minutes" min="1" step="0.5" value="5" inputmode="decimal" required></label>
+      <label>Only from <input type="time" name="start" value="09:00" required></label>
+      <label>Until <input type="time" name="end" value="17:00" required></label>
+    </div>
+    <label>Run at most <select name="cooldown_minutes">
+      <option value="30">every 30 minutes</option><option value="60">every hour</option>
+      <option value="120" selected>every 2 hours</option><option value="180">every 3 hours</option>
+      <option value="240">every 4 hours</option><option value="360">every 6 hours</option>
+      <option value="720">every 12 hours</option><option value="1440">once a day</option>
+    </select></label>
+    <p class="hint">Uses a 10-minute average, so a brief spike won't start a run. Tank lockout, pause and the soil-moisture skip still apply.</p>
+    <label class="check"><input type="checkbox" name="enabled" checked> Active</label>
+    <p id="rule-error" class="form-error" role="alert"></p>
+    <div class="dialog-actions">
+      <button type="button" id="rule-delete" class="btn ghost warn-text" hidden>Delete</button>
+      <span class="spacer"></span>
+      <button type="button" id="rule-cancel" class="btn ghost">Cancel</button>
+      <button type="submit" class="btn">Save rule</button>
     </div>
   </form>
 </dialog>
