@@ -114,6 +114,7 @@ section { margin-top: 30px; }
 .history time { color: var(--muted); min-width: 92px; flex-shrink: 0; }
 .history .ev-skipped, .history .ev-info { color: var(--muted); }
 .history .ev-stopped, .history .ev-alert, .history .ev-error { color: var(--warn); }
+.paused[hidden] { display: none; }
 .paused { background: var(--warn-soft); padding: 10px 14px; border-radius: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .pause-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; color: var(--muted); font-size: 15px; }
 
