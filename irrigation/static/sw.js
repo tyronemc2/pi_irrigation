@@ -1,7 +1,7 @@
 // Service worker: makes the dashboard installable and opens instantly.
 // Live data (/api/...) always comes from the network; never from cache.
-const CACHE = "veggieshack-v3";
-const SHELL = ["/", "/static/app.css", "/static/app.js", "/manifest.webmanifest",
+const CACHE = "veggieshack-v4";
+const SHELL = ["/", "/static/app.css", "/static/app.js", "/manifest.webmanifest", "/static/logo.webp",
   "/static/icons/icon-192.png", "/static/icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {

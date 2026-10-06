@@ -39,7 +39,7 @@ section { margin-top: 30px; }
 .top { position: relative; display: block; }
 .brand { margin: 0; line-height: 0; }
 .top .link { position: absolute; right: 18px; top: 22px; padding-top: 0; }
-.logo { display: block; width: min(440px, 100%); height: auto; overflow: visible; }
+.logo { display: block; width: min(340px, 74%); height: auto; }
 .link { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--muted); padding-top: 6px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
 .link.ok .dot { background: var(--leaf); }
