@@ -27,7 +27,7 @@ controller:
 
 safety:
   max_run_minutes: 30          # no single run is ever longer than this
-  one_zone_at_a_time: true     # one shared pump, so zones take turns
+  one_zone_at_a_time: false    # true = zones take turns (e.g. a pump too small for two)
   no_flow_timeout_seconds: 45  # stop hydro if no flow after this long...
   no_flow_min_litres_per_min: 0.3
   leak_alert_seconds: 120      # alert if water flows this long with valves closed
@@ -48,29 +48,32 @@ tank:
 
 zones:
   - id: 1
-    name: Hydroponics
+    name: Window Bed
     valve: A                 # MOSFETTI A / GPIO25
+    sensors: [1]             # probe on GPIO36 (SVP)
+    skip_if_wet: true
+    skip_if_rain: false      # greenhouse is covered: rain doesn't reach it
+    monitor_flow: false      # true only for the valve whose pipe runs through the flow sensor
+  - id: 2
+    name: Wall Bed
+    valve: B                 # MOSFETTI B / GPIO26
+    sensors: [2]             # probe on GPIO39 (SVN)
+    skip_if_wet: true
+    skip_if_rain: false
+    monitor_flow: false
+  - id: 3
+    name: Pots
+    valve: C                 # MOSFETTI C / GPIO2
     sensors: []
     skip_if_wet: false
-    skip_if_rain: false      # greenhouse is covered: rain doesn't reach it
-    monitor_flow: true       # the flow sensor is on the hydro branch
-  - id: 2
-    name: Beds & pots          # one shared line feeds all three beds
-    valve: B                 # MOSFETTI B / GPIO26
-    sensors: [1, 2, 3]       # one probe in each bed
-    # driest = water unless every bed is moist. average = use the mean of the probes.
-    moisture_from: driest
-    skip_if_wet: true
     skip_if_rain: false
     monitor_flow: false
 
 # Calibrate each probe (manual step 23): raw reading with the blade dry in air,
-# and in fully wetted bed soil. The dashboard's System section doesn't show raw
-# values, but GET /api/status does (look for "soil" -> "raw").
+# and in fully wetted bed soil. GET /api/status shows raw values ("soil" -> "raw").
 soil_sensors:
-  - {id: 1, name: Wall Bed, dry_raw: 2900, wet_raw: 1300}
-  - {id: 2, name: Window Bed, dry_raw: 2900, wet_raw: 1300}
-  - {id: 3, name: Alley Pots, dry_raw: 2900, wet_raw: 1300}
+  - {id: 1, name: Window Bed, dry_raw: 3226, wet_raw: 1300}
+  - {id: 2, name: Wall Bed, dry_raw: 3223, wet_raw: 1300}
 
 moisture:
   enabled: true

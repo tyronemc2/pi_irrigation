@@ -94,7 +94,7 @@ class IrrigationSystem:
                            "fw": st.get("fw"), "uptime_s": st.get("uptime_s"),
                            "error": st.get("error")},
             "zones": zones,
-            "running": snap["running"], "queue": snap["queue"],
+            "running": snap["running"], "runs": snap["runs"], "queue": snap["queue"],
             "air_temp_c": self.climate.air_temp(),
             "temp_rules": self.climate.rules_view(),
             "pump": st.get("pump"), "refill": st.get("refill"), "rssi": st.get("rssi"),

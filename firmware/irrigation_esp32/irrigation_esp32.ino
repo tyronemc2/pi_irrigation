@@ -1,21 +1,26 @@
 /*
   Greenhouse irrigation controller - ESP32 (Wemos/Lolin ESP32 OLED)
 
-  Pin plan follows the Hydro Greenhouse Controller Build Manual v1.0, step 9:
-    Soil 1/2/3  GPIO36/39/34   DS18B20  GPIO27 (4.7k pull-up)
-    Float LOW   GPIO32         Float HIGH GPIO33   (INPUT_PULLUP, other wire to GND)
+  Pin plan = Greenhouse Controller build book, step 9 (26-pin LOLIN32 + OLED).
+  This board has no GPIO18, 19, 27, 32, 33 or 34.
+    Soil 1      GPIO36 (SVP)  Alley Pots
+    Soil 2      GPIO39 (SVN)  bed
+    DS18B20     GPIO13 (4.7k from DATA to 3V3)
+    Float LOW   GPIO12        Float HIGH GPIO16   (INPUT_PULLUP, other wire to GND)
+                GPIO12 must be low at boot: nothing but the float goes there.
     Flow pulse  GPIO14 (via 10k/18k divider)
-    MOSFETTI A  GPIO25 valve A (hydroponics)
-    MOSFETTI B  GPIO26 valve B (veggie bed)
-    MOSFETTI C  GPIO18 transfer-pump relay (refill)   - optional
-    MOSFETTI D  GPIO19 main-pump relay                - optional
+    MOSFETTI A  GPIO25 valve A
+    MOSFETTI B  GPIO26 valve B
+    MOSFETTI C  GPIO2  valve C (blue on-board LED may light while open)
+    MOSFETTI D  not used (no free pin)
     OLED SDA/SCL GPIO5/4, address 0x3C
+  Pump relays and automatic refill are not available on this board.
 
   HTTP API (used by the Raspberry Pi):
     GET  /api/status
-    POST /api/valve?valve=A&seconds=600     (seconds=0 closes; A or B)
+    POST /api/valve?valve=A&seconds=600     (seconds=0 closes; A, B or C)
     POST /api/off                           close everything
-    POST /api/refill?action=reset|start|stop
+    POST /api/refill                        (not available: returns 409)
   If API_KEY is set, every request needs the header  X-Api-Key: <key>
 
   Safety: every valve run has its own timer on this board, so valves close on
@@ -40,18 +45,19 @@
 #error "Copy config.example.h to config.h and fill in your WiFi details"
 #endif
 
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "1.1.0"
 
 // ---- pins (manual step 9) ----
-const int SOIL_PINS[3] = {36, 39, 34};
-const int TEMP_PIN = 27;
-const int FLOAT_LOW_PIN = 32;
-const int FLOAT_HIGH_PIN = 33;
+#define NUM_SOIL 2
+#define NUM_VALVES 3
+const int SOIL_PINS[NUM_SOIL] = {36, 39};
+const int TEMP_PIN = 13;
+const int FLOAT_LOW_PIN = 12;
+const int FLOAT_HIGH_PIN = 16;
 const int FLOW_PIN = 14;
-const int OUT_PINS[4] = {25, 26, 18, 19};  // MOSFETTI A, B, C, D
+const int OUT_PINS[NUM_VALVES] = {25, 26, 2};  // MOSFETTI A, B, C
+const char VALVE_NAMES[NUM_VALVES] = {'A', 'B', 'C'};
 const int OLED_SDA = 5, OLED_SCL = 4;
-
-enum { CH_A = 0, CH_B = 1, CH_REFILL = 2, CH_PUMP = 3 };
 
 Adafruit_SSD1306 display(128, 64, &Wire, -1);
 bool displayOk = false;
@@ -63,36 +69,25 @@ volatile uint32_t flowPulses = 0;
 void IRAM_ATTR flowISR() { flowPulses++; }
 
 // ---- state ----
-unsigned long valveUntil[2] = {0, 0};   // millis() deadline; 0 = closed
-bool valveOn[2] = {false, false};
-unsigned long valveOpenedAt[2] = {0, 0};
-bool outState[4] = {false, false, false, false};
+unsigned long valveUntil[NUM_VALVES] = {0, 0, 0};   // millis() deadline; 0 = closed
+bool valveOn[NUM_VALVES] = {false, false, false};
 
-int soilRaw[3] = {0, 0, 0};
+int soilRaw[NUM_SOIL] = {0, 0};
 float tempC = -127.0;
 int floatLow = 1, floatHigh = 1;        // debounced readings
 int rawLow = 1, rawHigh = 1;
 unsigned long lowChangedAt = 0, highChangedAt = 0;
 
-bool refilling = false, refillFault = false;
-unsigned long refillStartedAt = 0, refillStoppedAt = 0;
-unsigned long lowDrySince = 0, highDrySince = 0;
-String refillFaultReason = "";
-bool pumpOn = false;
 
 unsigned long lastSensorRead = 0, lastDisplay = 0, lastWifiCheck = 0;
 
 // ---------------------------------------------------------------------------
 void setOutput(int ch, bool on) {
-  outState[ch] = on;
   digitalWrite(OUT_PINS[ch], on ? HIGH : LOW);
 }
 
 void allOff() {
-  for (int i = 0; i < 2; i++) { valveOn[i] = false; valveUntil[i] = 0; }
-  for (int ch = 0; ch < 4; ch++) setOutput(ch, false);
-  pumpOn = false;
-  if (refilling) { refilling = false; refillStoppedAt = millis(); }
+  for (int i = 0; i < NUM_VALVES; i++) { valveOn[i] = false; valveUntil[i] = 0; setOutput(i, false); }
 }
 
 bool lowWet()  { return floatLow == FLOAT_WET_VALUE; }
@@ -104,14 +99,13 @@ void openValve(int i, unsigned long seconds) {
     return;
   }
   if (seconds > MAX_VALVE_SECONDS) seconds = MAX_VALVE_SECONDS;
-  if (!valveOn[i]) valveOpenedAt[i] = millis();
   valveOn[i] = true;
   valveUntil[i] = millis() + seconds * 1000UL;
 }
 
 // ---------------------------------------------------------------------------
 void readSensors() {
-  for (int s = 0; s < 3; s++) {
+  for (int s = 0; s < NUM_SOIL; s++) {
     uint32_t sum = 0;
     for (int k = 0; k < 8; k++) sum += analogRead(SOIL_PINS[s]);
     soilRaw[s] = sum / 8;
@@ -133,47 +127,10 @@ void debounceFloats() {
 
 void updateValves() {
   unsigned long now = millis();
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < NUM_VALVES; i++) {
     if (valveOn[i] && (long)(now - valveUntil[i]) >= 0) { valveOn[i] = false; valveUntil[i] = 0; }
     setOutput(i, valveOn[i]);
   }
-}
-
-void updateRefill() {
-#if ENABLE_REFILL
-  unsigned long now = millis();
-  if (refilling) {
-    if (highWet()) {
-      refilling = false; refillStoppedAt = now;
-    } else if (now - refillStartedAt > REFILL_MAX_SECONDS * 1000UL) {
-      refilling = false; refillStoppedAt = now;
-      refillFault = true;
-      refillFaultReason = "Tank didn't reach HIGH in time";
-    }
-  } else if (!refillFault) {
-    if (!lowWet()) { if (lowDrySince == 0) lowDrySince = now; } else lowDrySince = 0;
-    if (!highWet()) { if (highDrySince == 0) highDrySince = now; } else highDrySince = 0;
-    bool rested = refillStoppedAt == 0 || now - refillStoppedAt > REFILL_REST_SECONDS * 1000UL;
-    bool low = lowDrySince && now - lowDrySince > 5000;
-    bool topUp = REFILL_TOPUP && highDrySince && now - highDrySince > REFILL_TOPUP_DELAY_SECONDS * 1000UL;
-    if ((low || topUp) && rested && !highWet()) {
-      refilling = true; refillStartedAt = now;
-    }
-  }
-  setOutput(CH_REFILL, refilling);
-#endif
-}
-
-void updatePump() {
-#if ENABLE_PUMP_CONTROL
-  unsigned long now = millis();
-  bool want = false;
-  for (int i = 0; i < 2; i++)
-    if (valveOn[i] && now - valveOpenedAt[i] >= PUMP_START_DELAY_MS) want = true;
-  if (!lowWet()) want = false;  // dry-run protection
-  pumpOn = want;
-  setOutput(CH_PUMP, pumpOn);
-#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -195,20 +152,20 @@ String statusJson() {
   j += "\"fw\":\"" FW_VERSION "\",";
   j += "\"uptime_s\":" + String(millis() / 1000) + ",";
   j += "\"rssi\":" + String(WiFi.RSSI()) + ",";
-  j += "\"soil_raw\":[" + String(soilRaw[0]) + "," + String(soilRaw[1]) + "," + String(soilRaw[2]) + "],";
+  // Three slots so the Pi's soil ids 1-3 stay valid; slot 3 has no probe (0 = not fitted).
+  j += "\"soil_raw\":[" + String(soilRaw[0]) + "," + String(soilRaw[1]) + ",0],";
   j += "\"temp_c\":" + String(tempC, 2) + ",";
   j += "\"float_low\":" + String(floatLow) + ",\"float_high\":" + String(floatHigh) + ",";
   j += "\"flow_pulses\":" + String(pulses) + ",";
   j += "\"valves\":{";
-  j += "\"A\":{\"on\":" + String(valveOn[0] ? "true" : "false") + ",\"remaining_s\":" + String(remainingS(0)) + "},";
-  j += "\"B\":{\"on\":" + String(valveOn[1] ? "true" : "false") + ",\"remaining_s\":" + String(remainingS(1)) + "}},";
-  j += "\"pump\":{\"enabled\":" + String(ENABLE_PUMP_CONTROL ? "true" : "false") +
-       ",\"on\":" + String(pumpOn ? "true" : "false") + "},";
-  j += "\"refill\":{\"enabled\":" + String(ENABLE_REFILL ? "true" : "false") +
-       ",\"running\":" + String(refilling ? "true" : "false") +
-       ",\"running_s\":" + String(refilling ? (millis() - refillStartedAt) / 1000 : 0) +
-       ",\"fault\":" + String(refillFault ? "true" : "false") +
-       ",\"fault_reason\":\"" + refillFaultReason + "\"}";
+  for (int i = 0; i < NUM_VALVES; i++) {
+    if (i) j += ",";
+    j += "\"" + String(VALVE_NAMES[i]) + "\":{\"on\":" + String(valveOn[i] ? "true" : "false") +
+         ",\"remaining_s\":" + String(remainingS(i)) + "}";
+  }
+  j += "},";
+  j += "\"pump\":{\"enabled\":false,\"on\":false},";
+  j += "\"refill\":{\"enabled\":false,\"running\":false,\"running_s\":0,\"fault\":false,\"fault_reason\":\"\"}";
   j += "}";
   return j;
 }
@@ -223,13 +180,13 @@ void handleValve() {
   String v = server.arg("valve");
   v.toUpperCase();
   long secs = server.arg("seconds").toInt();
-  int idx = v == "A" ? 0 : v == "B" ? 1 : -1;
+  int idx = v == "A" ? 0 : v == "B" ? 1 : v == "C" ? 2 : -1;
   if (idx < 0 || secs < 0) {
-    server.send(400, "application/json", "{\"error\":\"valve must be A or B, seconds >= 0\"}");
+    server.send(400, "application/json", "{\"error\":\"valve must be A, B or C, seconds >= 0\"}");
     return;
   }
   openValve(idx, secs);
-  updateValves(); updatePump();
+  updateValves();
   server.send(200, "application/json", statusJson());
 }
 
@@ -241,19 +198,7 @@ void handleOff() {
 
 void handleRefill() {
   if (!authorised()) return;
-  String a = server.arg("action");
-  if (a == "reset") { refillFault = false; refillFaultReason = ""; refillStoppedAt = 0; }
-  else if (a == "stop") { if (refilling) { refilling = false; refillStoppedAt = millis(); } }
-  else if (a == "start") {
-    if (refillFault) { server.send(409, "application/json", "{\"error\":\"refill fault - reset first\"}"); return; }
-    if (highWet()) { server.send(409, "application/json", "{\"error\":\"tank already full\"}"); return; }
-    if (ENABLE_REFILL && !refilling) { refilling = true; refillStartedAt = millis(); }
-  } else {
-    server.send(400, "application/json", "{\"error\":\"action must be reset, start or stop\"}");
-    return;
-  }
-  updateRefill();
-  server.send(200, "application/json", statusJson());
+  server.send(409, "application/json", "{\"error\":\"refill is not available on this board\"}");
 }
 
 // ---------------------------------------------------------------------------
@@ -265,14 +210,10 @@ void drawDisplay() {
   else display.println("WiFi connecting...");
   display.print("A:"); display.print(valveOn[0] ? "ON " : "off");
   display.print(" B:"); display.print(valveOn[1] ? "ON " : "off");
-  display.print(" P:"); display.println(pumpOn ? "ON" : "off");
-  display.print("S "); display.print(soilRaw[0]); display.print(" ");
-  display.print(soilRaw[1]); display.print(" "); display.println(soilRaw[2]);
+  display.print(" C:"); display.println(valveOn[2] ? "ON" : "off");
+  display.print("S "); display.print(soilRaw[0]); display.print(" "); display.println(soilRaw[1]);
   display.print("T "); display.print(tempC, 1); display.println("C");
-  display.print("Tank "); display.print(highWet() ? "FULL" : lowWet() ? "OK" : "LOW");
-  if (refillFault) display.print(" FAULT");
-  else if (refilling) display.print(" filling");
-  display.println();
+  display.print("Tank "); display.println(highWet() ? "FULL" : lowWet() ? "OK" : "LOW");
   display.display();
 }
 
@@ -284,8 +225,8 @@ void setupWifi() {
 }
 
 void setup() {
-  // Outputs off before anything else.
-  for (int ch = 0; ch < 4; ch++) { pinMode(OUT_PINS[ch], OUTPUT); digitalWrite(OUT_PINS[ch], LOW); }
+  // Outputs off before anything else (GPIO2 must stay low for Valve C to stay shut).
+  for (int ch = 0; ch < NUM_VALVES; ch++) { digitalWrite(OUT_PINS[ch], LOW); pinMode(OUT_PINS[ch], OUTPUT); }
   Serial.begin(115200);
   pinMode(FLOAT_LOW_PIN, INPUT_PULLUP);
   pinMode(FLOAT_HIGH_PIN, INPUT_PULLUP);
@@ -320,7 +261,7 @@ void setup() {
   server.begin();
 
   Serial.println("Greenhouse irrigation controller " FW_VERSION " ready.");
-  Serial.println("Serial test: type A or B to pulse a valve for 2 seconds.");
+  Serial.println("Serial test: type A, B or C to pulse a valve for 2 seconds.");
 }
 
 void loop() {
@@ -332,12 +273,11 @@ void loop() {
     char ch = Serial.read();
     if (ch == 'A' || ch == 'a') openValve(0, 2);
     if (ch == 'B' || ch == 'b') openValve(1, 2);
+    if (ch == 'C' || ch == 'c') openValve(2, 2);
   }
 
   debounceFloats();
   updateValves();
-  updateRefill();
-  updatePump();
 
   if (now - lastSensorRead >= 1000) { lastSensorRead = now; readSensors(); }
   if (now - lastDisplay >= 1000) { lastDisplay = now; drawDisplay(); }

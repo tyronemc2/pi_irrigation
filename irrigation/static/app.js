@@ -85,9 +85,13 @@ function renderTank() {
   $("#pump").textContent = !state.controller.online || !p ? "–" : !p.enabled ? "Runs on its own pressure switch" : p.on ? "Running" : "Off";
 }
 
+function runFor(z) {
+  return (state.runs || (state.running ? [state.running] : [])).find((r) => r.zone_id === z.id);
+}
+
 function zoneState(z) {
-  const run = state.running;
-  if (run && run.zone_id === z.id) {
+  const run = runFor(z);
+  if (run) {
     const left = Math.max(0, run.remaining_s - Math.floor((Date.now() - fetchedAt) / 1000));
     return `Watering, ${mmss(left)} left`;
   }
@@ -99,7 +103,8 @@ function zoneState(z) {
 function renderZones() {
   const online = state.controller.online;
   $("#zones").innerHTML = state.zones.map((z) => {
-    const running = (state.running && state.running.zone_id === z.id) || z.on;
+    const zrun = runFor(z);
+    const running = !!zrun || z.on;
     const queued = state.queue.some((q) => q.zone_id === z.id);
     let body = "";
     if (z.sensors.length) {
@@ -113,8 +118,8 @@ function renderZones() {
         ? `Scheduled watering is skipped only when every bed is above ${state.limits.moist_threshold}%.`
         : `Scheduled watering is skipped above ${state.limits.moist_threshold}%.`}</p>`;
     }
-    if (running && state.flow_lpm != null && state.running && state.running.litres != null) {
-      body += `<p class="zone-note">${state.flow_lpm.toFixed(1)} L/min, ${state.running.litres} L so far</p>`;
+    if (running && state.flow_lpm != null && zrun && zrun.litres != null) {
+      body += `<p class="zone-note">${state.flow_lpm.toFixed(1)} L/min, ${zrun.litres} L so far</p>`;
     }
     return `<article class="zone${running ? " on" : ""}">
       <div class="zone-head"><h3>${esc(z.name)}</h3><p class="state">${esc(zoneState(z))}</p></div>
@@ -363,15 +368,19 @@ function renderSystem() {
 }
 
 function renderRunbar() {
-  const run = state.running, anyOn = state.zones.some((z) => z.on);
+  const runs = state.runs || (state.running ? [state.running] : []);
+  const anyOn = state.zones.some((z) => z.on);
   const bar = $("#runbar");
-  bar.hidden = !(run || anyOn || state.queue.length);
+  bar.hidden = !(runs.length || anyOn || state.queue.length);
   if (bar.hidden) return;
   let text = "Water is on";
-  if (run) {
-    const left = Math.max(0, run.remaining_s - Math.floor((Date.now() - fetchedAt) / 1000));
-    text = `${run.zone}: ${mmss(left)} left`;
-    if (run.litres != null) text += `, ${run.litres}\u00a0L`;
+  if (runs.length) {
+    const gone = Math.floor((Date.now() - fetchedAt) / 1000);
+    text = runs.map((run) => {
+      let t = `${run.zone}: ${mmss(Math.max(0, run.remaining_s - gone))} left`;
+      if (run.litres != null) t += `, ${run.litres}\u00a0L`;
+      return t;
+    }).join(" · ");
   }
   if (state.queue.length) text += `. Then ${state.queue.map((q) => q.zone).join(", ")}`;
   $("#run-text").textContent = text;
@@ -466,5 +475,5 @@ refresh();
 fetchTemps();
 setInterval(() => { if (!document.hidden) refresh(); }, 3000);
 setInterval(() => { if (!document.hidden) fetchTemps(); }, 5 * 60 * 1000);
-setInterval(() => { if (state && (state.running)) { renderRunbar(); renderZones(); } }, 1000);
+setInterval(() => { if (state && (state.running || (state.runs && state.runs.length))) { renderRunbar(); renderZones(); } }, 1000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); fetchTemps(); } });

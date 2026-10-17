@@ -149,3 +149,35 @@ def test_refill_completes(make_system, clock):
     run_for(s, clock, 600)
     assert s.device.tank_pct >= 85
     assert any(h["reason"] == "Tank refilled" for h in hist(s, "info"))
+
+
+def test_zones_run_together_when_allowed(make_system, cfg, clock):
+    cfg["safety"]["one_zone_at_a_time"] = False
+    s = make_system(cfg=cfg, schedules=[])
+    assert s.controller.request_run(1, 1)[0]
+    ok, msg = s.controller.request_run(2, 2)
+    assert ok and "started" in msg and s.controller.queue == []
+    s.step()
+    st = s.device.status()["valves"]
+    assert st["A"]["on"] and st["B"]["on"]
+    snap = s.controller.snapshot()
+    assert [r["zone_id"] for r in snap["runs"]] == [1, 2] and snap["running"]["zone_id"] == 1
+    run_for(s, clock, 63)  # zone 1 finishes, zone 2 keeps going
+    st = s.device.status()["valves"]
+    assert not st["A"]["on"] and st["B"]["on"]
+    assert [r["zone_id"] for r in s.controller.snapshot()["runs"]] == [2]
+    run_for(s, clock, 63)
+    assert not s.controller.runs
+    assert sorted(h["zone"] for h in hist(s, "ran")) == ["Beds & pots", "Hydroponics"]
+
+
+def test_stop_all_stops_every_parallel_run(make_system, cfg, clock):
+    cfg["safety"]["one_zone_at_a_time"] = False
+    s = make_system(cfg=cfg, schedules=[])
+    s.controller.request_run(1, 10)
+    s.controller.request_run(2, 10)
+    run_for(s, clock, 30)
+    s.controller.stop()
+    st = s.device.status()["valves"]
+    assert not s.controller.runs and not st["A"]["on"] and not st["B"]["on"]
+    assert len(hist(s, "stopped")) == 2

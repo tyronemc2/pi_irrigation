@@ -47,7 +47,7 @@ class Controller:
         self.clock, self.now = clock, now
         self.zones = {z["id"]: z for z in cfg["zones"]}
         self.status: dict | None = None
-        self.current: Run | None = None
+        self.runs: dict[int, Run] = {}   # zone id -> active run, oldest first
         self.queue: list[Request] = []
         self.flow_lpm: float | None = None
         self._lock = threading.RLock()
@@ -59,6 +59,11 @@ class Controller:
         self._refill_prev: dict | None = None
 
     # ---------- helpers ----------
+    @property
+    def current(self) -> Run | None:
+        """The oldest active run (or None). Kept for the one-zone-at-a-time view."""
+        return next(iter(self.runs.values()), None)
+
     @property
     def online(self) -> bool:
         return bool(self.status and self.status.get("online"))
@@ -160,11 +165,11 @@ class Controller:
                 return False, "The greenhouse controller is offline"
             if self.tank_blocks_watering():
                 return False, "The tank is low, so watering is locked out"
-            if self.current and self.current.zone["id"] == zone_id:
+            if zone_id in self.runs:
                 return False, f"{zone['name']} is already running"
             if any(r.zone_id == zone_id for r in self.queue):
                 return False, f"{zone['name']} is already waiting to run"
-            if self.current and self.cfg["safety"]["one_zone_at_a_time"]:
+            if self.runs and self.cfg["safety"]["one_zone_at_a_time"]:
                 self.queue.append(Request(zone_id, minutes, reason, notify))
                 return True, f"{zone['name']} will run after {self.current.zone['name']}"
             return self._start(Request(zone_id, minutes, reason, notify))
@@ -179,8 +184,8 @@ class Controller:
         now = self.clock()
         metered = zone.get("monitor_flow") and self.cfg["flow"]["enabled"]
         pulses = self.status["flow_pulses"] if self.online and metered else None
-        self.current = Run(zone, req.minutes, req.reason, req.notify, now,
-                           now + req.minutes * 60, self.now(), pulses)
+        self.runs[zone["id"]] = Run(zone, req.minutes, req.reason, req.notify, now,
+                                    now + req.minutes * 60, self.now(), pulses)
         log.info("Started %s for %.1f min (%s)", zone["name"], req.minutes, req.reason)
         return True, f"{zone['name']} started for {req.minutes:g} min"
 
@@ -191,11 +196,11 @@ class Controller:
                 self.device.all_off()
             except DeviceError as exc:
                 log.error("Stop failed: %s", exc)
-            if self.current:
-                self._finish("stopped", reason)
+            for run in list(self.runs.values()):
+                self._finish(run, "stopped", reason)
 
-    def _finish(self, event: str, reason: str, priority: str = "default") -> None:
-        run, self.current = self.current, None
+    def _finish(self, run: Run, event: str, reason: str, priority: str = "default") -> None:
+        self.runs.pop(run.zone["id"], None)
         try:
             self.device.set_valve(run.zone["valve"], 0)
         except DeviceError:
@@ -219,29 +224,30 @@ class Controller:
     def tick(self) -> None:
         with self._lock:
             self.poll()
-            run = self.current
-            if run:
+            safety = self.cfg["safety"]
+            if self.runs and self.online and self.tank_blocks_watering():
+                for run in list(self.runs.values()):
+                    self.device_safe_off(run)
+                    self._finish(run, "stopped", "Tank level dropped below the low float",
+                                 priority="high")
+            for run in list(self.runs.values()):
                 elapsed = self.clock() - run.started
                 valve_state = (self.status or {}).get("valves", {}).get(run.zone["valve"], {})
-                safety = self.cfg["safety"]
-                if self.online and self.tank_blocks_watering():
-                    self.device_safe_off(run)
-                    self._finish("stopped", "Tank level dropped below the low float", priority="high")
-                elif (self.online and run.zone.get("monitor_flow") and self.cfg["flow"]["enabled"]
-                      and run.start_pulses is not None
-                      and elapsed >= safety["no_flow_timeout_seconds"]
-                      and elapsed < safety["no_flow_timeout_seconds"] + 30 and not run.flow_warned):
+                if (self.online and run.zone.get("monitor_flow") and self.cfg["flow"]["enabled"]
+                        and run.start_pulses is not None
+                        and elapsed >= safety["no_flow_timeout_seconds"]
+                        and elapsed < safety["no_flow_timeout_seconds"] + 30 and not run.flow_warned):
                     run.flow_warned = True
                     used = self._litres(self.status["flow_pulses"] - run.start_pulses)
                     if used / (elapsed / 60) < safety["no_flow_min_litres_per_min"]:
-                        self._finish("stopped", "No water flowed. Check the pump, tank and filter",
+                        self._finish(run, "stopped", "No water flowed. Check the pump, tank and filter",
                                      priority="high")
-                if self.current is run:
-                    if self.clock() >= run.ends:
-                        self._finish("ran", run.reason)
-                    elif self.online and elapsed > GRACE_SECONDS and not valve_state.get("on", False):
-                        self._finish("stopped", "The controller closed the valve early (restart?)")
-            if not self.current and self.queue:
+                        continue
+                if self.clock() >= run.ends:
+                    self._finish(run, "ran", run.reason)
+                elif self.online and elapsed > GRACE_SECONDS and not valve_state.get("on", False):
+                    self._finish(run, "stopped", "The controller closed the valve early (restart?)")
+            while self.queue and not (self.runs and safety["one_zone_at_a_time"]):
                 req = self.queue.pop(0)
                 if self.tank_blocks_watering():
                     self._event(self.zones[req.zone_id], "skipped", "Tank low")
@@ -258,7 +264,7 @@ class Controller:
     def _check_leak(self) -> None:
         if not (self.online and self.cfg["flow"]["enabled"]) or self.flow_lpm is None:
             return
-        any_open = self.current is not None or any(v["on"] for v in self.status["valves"].values())
+        any_open = bool(self.runs) or any(v["on"] for v in self.status["valves"].values())
         safety = self.cfg["safety"]
         if any_open or self.flow_lpm < safety["leak_min_litres_per_min"]:
             self._leak_since, self._leak_notified = None, False
@@ -272,18 +278,22 @@ class Controller:
             self._event(None, "alert", "Water flowing with all valves closed",
                         detail=f"{self.flow_lpm} L/min")
 
+    def _run_view(self, run: Run) -> dict:
+        return {
+            "zone_id": run.zone["id"], "zone": run.zone["name"], "reason": run.reason,
+            "minutes": run.minutes,
+            "remaining_s": max(0, int(run.ends - self.clock())),
+            "litres": (round(self._litres(self.status["flow_pulses"] - run.start_pulses), 1)
+                       if self.online and run.start_pulses is not None else None),
+        }
+
     def snapshot(self) -> dict:
         with self._lock:
-            run = self.current
+            runs = [self._run_view(r) for r in self.runs.values()]
             return {
                 "online": self.online,
-                "running": None if not run else {
-                    "zone_id": run.zone["id"], "zone": run.zone["name"], "reason": run.reason,
-                    "minutes": run.minutes,
-                    "remaining_s": max(0, int(run.ends - self.clock())),
-                    "litres": (round(self._litres(self.status["flow_pulses"] - run.start_pulses), 1)
-                               if self.online and run.start_pulses is not None else None),
-                },
+                "running": runs[0] if runs else None,   # oldest run (older dashboards)
+                "runs": runs,
                 "queue": [{"zone_id": r.zone_id, "zone": self.zones[r.zone_id]["name"],
                            "minutes": r.minutes} for r in self.queue],
                 "flow_lpm": self.flow_lpm,
