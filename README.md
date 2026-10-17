@@ -90,7 +90,8 @@ a secure address, and lets you check the greenhouse away from home.
 3. **Android (Chrome):** tap **Install app** on the dashboard, or menu ⋮ then **Install app**.
 4. **iPhone (Safari):** tap Share, then **Add to Home Screen**.
 
-On home WiFi you can also use `http://<pi-ip>:8080`. iPhones can add that to the home screen,
+On home WiFi you can also use `http://<pi-name>.local` or `http://<pi-ip>` (the installer
+redirects port 80 to the dashboard on 8080, so no port number is needed; `:8080` still works). iPhones can add that to the home screen,
 but on Android it becomes a plain browser shortcut rather than an app.
 
 If the installer asks you to enable HTTPS, turn on **MagicDNS** and **HTTPS certificates** in the

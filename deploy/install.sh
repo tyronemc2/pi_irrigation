@@ -83,6 +83,21 @@ if [[ "$SKIP_SYSTEM" != 1 ]]; then
     echo "  The service didn't answer. See: journalctl -u pi-irrigation -n 50"
   fi
 
+  say "Making the dashboard answer on port 80 (no :$PORT needed)"
+  # The app runs as an unprivileged user, so it can't listen on port 80 itself.
+  # Instead, traffic arriving on port 80 is redirected to $PORT. Safe to re-run.
+  if ! dpkg -s iptables-persistent >/dev/null 2>&1; then
+    echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
+    echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iptables-persistent >/dev/null
+  fi
+  for ipt in iptables ip6tables; do
+    if ! $ipt -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port "$PORT" 2>/dev/null; then
+      $ipt -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port "$PORT"
+    fi
+  done
+  netfilter-persistent save >/dev/null 2>&1 && echo "  Port 80 now leads to the dashboard."
+
   if [[ $WANT_TAILSCALE == 1 ]]; then
     say "Setting up Tailscale HTTPS"
     command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh
@@ -95,7 +110,7 @@ if [[ "$SKIP_SYSTEM" != 1 ]]; then
 
   LAN_IP="$(hostname -I | awk '{print $1}')"
   say "Done"
-  echo "  On your home WiFi:  http://$LAN_IP:$PORT   or   http://$(hostname).local:$PORT"
+  echo "  On your home WiFi:  http://$(hostname).local   or   http://$LAN_IP"
   [[ $WANT_TAILSCALE == 1 ]] && echo "  Anywhere (installs as an app on Android and iPhone): https://$TS_NAME"
   [[ $NEW_CONFIG == 1 ]] && echo "  Next: sudo nano $CONF_DIR/config.yaml  then  sudo systemctl restart pi-irrigation"
 fi
