@@ -126,6 +126,7 @@ function renderZones() {
       ${body}
       <div class="run-row"><span>Water now</span>
         ${[5, 10, 15].map((m) => `<button class="btn small water" data-run="${z.id}" data-min="${m}" ${online && !running && !queued ? "" : "disabled"}>${m} min</button>`).join("")}
+        ${running || queued ? `<button class="btn small stop" data-stop="${z.id}">${running ? "Stop" : "Cancel"}</button>` : ""}
       </div></article>`;
   }).join("");
 }
@@ -448,6 +449,7 @@ document.addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b) return;
   if (b.dataset.run) act(`/api/zones/${b.dataset.run}/run`, {minutes: +b.dataset.min}).catch(() => {});
+  else if (b.dataset.stop) act(`/api/zones/${b.dataset.stop}/stop`).catch(() => {});
   else if (b.dataset.edit) openDialog(state.schedules.find((s) => s.id === +b.dataset.edit));
   else if (b.dataset.pause) act("/api/pause", {days: +b.dataset.pause}).catch(() => {});
   else if (b.id === "resume") act("/api/resume").catch(() => {});

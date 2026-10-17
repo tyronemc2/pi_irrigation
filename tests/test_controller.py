@@ -181,3 +181,28 @@ def test_stop_all_stops_every_parallel_run(make_system, cfg, clock):
     st = s.device.status()["valves"]
     assert not s.controller.runs and not st["A"]["on"] and not st["B"]["on"]
     assert len(hist(s, "stopped")) == 2
+
+
+def test_stop_one_zone_leaves_others_running(make_system, cfg, clock):
+    cfg["safety"]["one_zone_at_a_time"] = False
+    s = make_system(cfg=cfg, schedules=[])
+    s.controller.request_run(1, 10)
+    s.controller.request_run(2, 10)
+    run_for(s, clock, 30)
+    ok, msg = s.controller.stop_zone(1)
+    assert ok and "stopped" in msg
+    st = s.device.status()["valves"]
+    assert not st["A"]["on"] and st["B"]["on"] and list(s.controller.runs) == [2]
+    s.step()
+    assert not s.controller.stop_zone(1)[0]  # already off
+    run_for(s, clock, 30)
+    assert list(s.controller.runs) == [2]
+
+
+def test_stop_zone_takes_it_out_of_the_queue(make_system, clock):
+    s = make_system(schedules=[])
+    s.controller.request_run(1, 1)
+    s.controller.request_run(2, 1)
+    ok, msg = s.controller.stop_zone(2)
+    assert ok and "queue" in msg and s.controller.queue == []
+    assert list(s.controller.runs) == [1]

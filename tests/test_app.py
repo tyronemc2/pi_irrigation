@@ -85,3 +85,13 @@ def test_password(make_system, cfg):
     # install files stay public so phones can fetch them
     assert c.get("/manifest.webmanifest").status_code == 200 and c.get("/sw.js").status_code == 200
     assert c.get("/healthz").status_code == 200
+
+
+def test_stop_zone_endpoint(make_system):
+    from irrigation.app import create_app
+    s = make_system(schedules=[])
+    c = create_app(s).test_client()
+    c.post("/api/zones/1/run", json={"minutes": 5})
+    r = c.post("/api/zones/1/stop")
+    assert r.status_code == 200 and r.get_json()["ok"]
+    assert c.post("/api/zones/1/stop").status_code == 409

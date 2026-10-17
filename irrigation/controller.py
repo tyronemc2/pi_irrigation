@@ -199,6 +199,29 @@ class Controller:
             for run in list(self.runs.values()):
                 self._finish(run, "stopped", reason)
 
+    def stop_zone(self, zone_id: int, reason: str = "Stopped from dashboard") -> tuple[bool, str]:
+        """Stop one zone (or take it out of the queue); other zones keep running."""
+        with self._lock:
+            zone = self.zones.get(zone_id)
+            if not zone:
+                return False, f"No zone {zone_id}"
+            queued = [r for r in self.queue if r.zone_id == zone_id]
+            if queued:
+                self.queue = [r for r in self.queue if r.zone_id != zone_id]
+                return True, f"{zone['name']} taken out of the queue"
+            run = self.runs.get(zone_id)
+            if run:
+                self._finish(run, "stopped", reason)
+                return True, f"{zone['name']} stopped"
+            valve = ((self.status or {}).get("valves") or {}).get(zone["valve"], {})
+            if valve.get("on"):  # opened outside the Pi, e.g. a serial test
+                try:
+                    self.device.set_valve(zone["valve"], 0)
+                except DeviceError:
+                    return False, "Couldn't reach the greenhouse controller"
+                return True, f"{zone['name']} closed"
+            return False, f"{zone['name']} isn't running"
+
     def _finish(self, run: Run, event: str, reason: str, priority: str = "default") -> None:
         self.runs.pop(run.zone["id"], None)
         try:

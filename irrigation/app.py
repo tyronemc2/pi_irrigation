@@ -58,6 +58,12 @@ def create_app(system) -> Flask:
         ok, msg = system.controller.request_run(zone_id, body().get("minutes", 5), "Manual")
         return jsonify(ok=ok, message=msg), (200 if ok else 409)
 
+    @app.post("/api/zones/<int:zone_id>/stop")
+    @auth
+    def stop_zone(zone_id):
+        ok, msg = system.controller.stop_zone(zone_id)
+        return jsonify(ok=ok, message=msg), (200 if ok else 409)
+
     @app.post("/api/stop")
     @auth
     def stop():
